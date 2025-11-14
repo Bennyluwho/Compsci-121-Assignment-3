@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import json
 from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
-from nltk.stem import PorterStemmer
+from nltk.stem import SnowballStemmer
 from collections import defaultdict
 import time
 
@@ -18,16 +18,18 @@ class Indexer:
         self.batch_size = batch_size
 
         self.tokenizer = RegexpTokenizer(r"\w+")
-        self.stemmer = PorterStemmer()
+        self.stemmer = SnowballStemmer("english") # swtiched to a faster stemmer
 
         self.inverted_index = defaultdict(set)
-        self.doc_id_to_url = []
+        self.doc_id_to_url = {}
 
         self.global_doc_id = 0
 
      # TEXT PROCESSING   
 
     def extract_text(self, html:str) -> str:
+        if not html.strip():
+            return ""
         soup = BeautifulSoup(html, "lxml")
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
@@ -36,7 +38,7 @@ class Indexer:
     def tokenize_and_stem_unique(self, text: str) -> set[str]:
         text = text.lower()
         tokens = self.tokenizer.tokenize(text)
-        tokens = [t for t in tokens if t.isalpha()]
+        tokens = [t for t in tokens if t.isalpha() if t.isalpha()] 
         stems = { self.stemmer.stem(t) for t in tokens }  # set → unique stems
         return stems
     
@@ -107,6 +109,6 @@ class Indexer:
             batch_id += 1
 
 if __name__ == "__main__":
-    indexer = Indexer(root_folder="analyst", batch_size=3000)
+    indexer = Indexer(root_folder="DEV", batch_size=3000)
     indexer.build()
 
