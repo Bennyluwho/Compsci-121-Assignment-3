@@ -10,6 +10,8 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
 import time
+from postings import Posting
+
 
 
 class Indexer:
@@ -20,7 +22,7 @@ class Indexer:
         self.tokenizer = RegexpTokenizer(r"\w+")
         self.stemmer = SnowballStemmer("english") # swtiched to a faster stemmer
 
-        self.inverted_index = defaultdict(set)
+        self.inverted_index = defaultdict(list) # stores a list of posting  objects
         self.doc_id_to_url = {}
 
         self.global_doc_id = 0
@@ -35,21 +37,32 @@ class Indexer:
             tag.decompose()
         return soup.get_text(separator=" ", strip=True)
 
-    def tokenize_and_stem_unique(self, text: str) -> set[str]:
+    def tokenize_and_stem(self, text: str) -> list[str]:
         text = text.lower()
         tokens = self.tokenizer.tokenize(text)
         tokens = [t for t in tokens if t.isalpha() if t.isalpha()] 
-        stems = { self.stemmer.stem(t) for t in tokens }  # set → unique stems
+        stems = [self.stemmer.stem(t) for t in tokens]
         return stems
     
     #INDEXING SINGLE DOC
 
     def index_document(self, doc_id: int, html: str) -> None:
         text = self.extract_text(html)
-        stemmed_tokens = self.tokenize_and_stem_unique(text)
+        stemmed_tokens = self.tokenize_and_stem(text)
 
         for token in stemmed_tokens:
-            self.inverted_index[token].add(doc_id)
+            posting_list = self.inverted_index[token]
+            #check if doc_id has a posting
+
+            found = False
+            for posting in posting_list:
+                if posting.doc_id == doc_id:
+                    posting.increment()
+                    found = True
+                    break
+            if not found:
+                posting_list.append(Posting(doc_id))
+
 
     #GRAB BATCHES
     def batch_grab(self):
@@ -65,7 +78,7 @@ class Indexer:
 
     #BATCH PROCESSING
     def process_batch(self, batch_files, batch_id):
-        self.inverted_index = defaultdict(set)
+        self.inverted_index = defaultdict(list)
         self.doc_id_to_url = {}
 
         for json_file in batch_files:
@@ -92,7 +105,8 @@ class Indexer:
         index_path = f"partial_index_{batch_id}.json"
         docid_path = f"partial_docids_{batch_id}.json"
 
-        serializable_index = { token: list(doc_ids) for token, doc_ids in self.inverted_index.items() }
+        serializable_index = { token: [posting.to_dict() for posting in postings]
+                              for token, postings in self.inverted_index.items() }
         with open(index_path, "w") as f:
             json.dump(serializable_index, f)
         with open(docid_path, "w") as f:
