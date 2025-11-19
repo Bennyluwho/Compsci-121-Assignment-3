@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     clean_old_partials(".")
 
-    indexer = Indexer(root_folder="DEV", batch_size=60000)
+    indexer = Indexer(root_folder="analyst", batch_size=2000)
     indexer.build()
   
     print(f"Number of indexed pages:", indexer.global_doc_id)

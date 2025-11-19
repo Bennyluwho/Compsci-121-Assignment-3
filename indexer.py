@@ -9,7 +9,6 @@ from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
-import time
 from postings import Posting
 
 
@@ -19,7 +18,7 @@ class Indexer:
         self.root = Path(root_folder)
         self.batch_size = batch_size
 
-        self.tokenizer = RegexpTokenizer(r"[a-zA-Z0-9\-]+")
+        self.tokenizer = RegexpTokenizer(r"[a-zA-Z0-9]+")
         self.stemmer = SnowballStemmer("english") # swtiched to a faster stemmer
 
         self.inverted_index = defaultdict(list) # stores a list of posting  objects
@@ -123,6 +122,6 @@ class Indexer:
             batch_id += 1
 
 if __name__ == "__main__":
-    indexer = Indexer(root_folder="DEV", batch_size=3000)
+    indexer = Indexer(root_folder="analyst", batch_size=3000)
     indexer.build()
 
