@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     start_index_time = time.time()
 
-    indexer = Indexer(root_folder="analyst", batch_size=1000)
+    indexer = Indexer(root_folder="DEV", batch_size=20000)
     indexer.build()
 
     end_index_time = time.time()

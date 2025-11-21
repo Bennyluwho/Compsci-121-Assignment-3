@@ -104,7 +104,8 @@ class Indexer:
         index_path = f"partial_index_{batch_id}.json"
         docid_path = f"partial_docids_{batch_id}.json"
 
-        serializable_index = { token: [posting.to_dict() for posting in postings]
+        #makes sure postings are sorted by doc id within a partial index
+        serializable_index = { token: [posting.to_dict() for posting in sorted(postings, key=lambda p:p.doc_id)]
                               for token, postings in self.inverted_index.items() }
         with open(index_path, "w") as f:
             json.dump(serializable_index, f)
