@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import List, Dict
+import time
 
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import SnowballStemmer
@@ -107,11 +108,17 @@ if __name__ == "__main__":
         if not q:
             break
 
+        start_query_time = time.time()
+
         matching_docs = engine.and_query(q)
         urls = engine.top_k_urls(matching_docs, k=5)
 
+        end_query_time = time.time()
+        elapsed_query_time = (end_query_time-start_query_time) * 1000
+        
         print(f"\nQuery: {q}")
         print(f"Matched {len(matching_docs)} documents. Top {min(5, len(matching_docs))}:")
         for i, url in enumerate(urls, start=1):
             print(f"{i}. {url}")
+        print(f"Query completed in {(elapsed_query_time):3f} milliseconds.")
         print()
