@@ -12,15 +12,17 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
 from postings import Posting
+from duplicate_detector import DuplicateDetector
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 
 class Indexer:
-    def __init__(self, root_folder: str, batch_size: int = 3000):
+    def __init__(self, root_folder: str, batch_size: int = 3000, detect_duplicates: bool = True):
         self.root = Path(root_folder)
         self.batch_size = batch_size
+        self.detect_duplicates = detect_duplicates
 
         self.tokenizer = RegexpTokenizer(r"[a-zA-Z0-9]+")
         self.stemmer = SnowballStemmer("english") # swtiched to a faster stemmer
@@ -29,6 +31,8 @@ class Indexer:
         self.doc_id_to_url = {}
 
         self.global_doc_id = 0
+        self.duplicate_detector = DuplicateDetector() if detect_duplicates else None
+        self.skipped_duplicates = 0
 
      # TEXT PROCESSING   
 
@@ -123,8 +127,21 @@ class Indexer:
                     continue
 
                 doc_id = self.global_doc_id
-                self.global_doc_id += 1 
+                
+                if self.detect_duplicates and self.duplicate_detector:
+                    is_duplicate, original_doc_id = self.duplicate_detector.is_exact_duplicate(html, doc_id)
+                    if is_duplicate:
+                        self.skipped_duplicates += 1
+                        continue
+                    
+                    text, _ = self.extract_text(html)
+                    stemmed_tokens = self.tokenize_and_stem(text)
+                    is_near_dup, original_doc_id = self.duplicate_detector.is_near_duplicate(text, stemmed_tokens, doc_id)
+                    if is_near_dup:
+                        self.skipped_duplicates += 1
+                        continue
 
+                self.global_doc_id += 1
                 self.doc_id_to_url[doc_id] = url
                 self.index_document(doc_id, html)
             # handle broken or missing HTML
@@ -148,7 +165,6 @@ class Indexer:
         with open(docid_path, "w") as f:
             json.dump(self.doc_id_to_url, f)
 
-        print(f"Saved batch {batch_id} to {index_path}")
 
     #RUN
     def build(self):
@@ -157,6 +173,13 @@ class Indexer:
             print(f"Processing batch {batch_id} with {len(batch_files)} files.")
             self.process_batch(batch_files, batch_id)
             batch_id += 1
+        
+        if self.detect_duplicates and self.duplicate_detector:
+            stats = self.duplicate_detector.get_duplicate_stats()
+            print(f"Unique original pages: {stats['unique_original_pages']}")
+            print(f"Duplicate groups found: {stats['duplicate_groups']}")
+            print(f"Total duplicate pages skipped: {stats['total_duplicate_pages']}")
+            print(f"Total pages skipped: {self.skipped_duplicates}")
 
 if __name__ == "__main__":
     indexer = Indexer(root_folder="analyst", batch_size=3000)

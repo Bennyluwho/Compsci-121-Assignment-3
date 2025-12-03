@@ -69,13 +69,11 @@ class IndexMerger:
                 "end_token": split_tokens[-1] if split_tokens else ""
             })
             
-            print(f"Created split {i}: {split_path} ({len(split_tokens)} tokens)")
         
         # Tell main where and how to merge
         manifest_path = "index_manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(split_files, f, indent=2)
         
-        print(f"Index manifest saved to {manifest_path}")
         return manifest_path
     
