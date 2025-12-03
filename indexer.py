@@ -1,4 +1,3 @@
-
 #TODO: Number of unique tokens
 #TODO: Total size (in KB) of your index on disk
 #TODO: OPTIONAL save the time it takes
@@ -9,7 +8,7 @@ import warnings
 import json
 from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
-from nltk.stem import SnowballStemmer
+from nltk.stem import PorterStemmer
 from collections import defaultdict
 from postings import Posting
 from duplicate_detector import DuplicateDetector
@@ -25,7 +24,8 @@ class Indexer:
         self.detect_duplicates = detect_duplicates
 
         self.tokenizer = RegexpTokenizer(r"[a-zA-Z0-9]+")
-        self.stemmer = SnowballStemmer("english") # swtiched to a faster stemmer
+        # Porter Stemming
+        self.stemmer = PorterStemmer()
 
         self.inverted_index = defaultdict(list) # stores a list of posting  objects
         self.doc_id_to_url = {}
@@ -50,6 +50,7 @@ class Indexer:
         
         important_words = set()
         
+        # important words
         try:
             for tag in soup.find_all(["h1", "h2", "h3", "title"]):
                 text = tag.get_text()

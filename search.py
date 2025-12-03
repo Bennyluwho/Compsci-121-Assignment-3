@@ -1,12 +1,12 @@
 import json
 from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
-from nltk.stem import SnowballStemmer
+from nltk.stem import PorterStemmer
 from collections import defaultdict
 import math
 
 tokenizer = RegexpTokenizer(r"[a-zA-Z0-9\-]+")
-stemmer = SnowballStemmer("english")
+stemmer = PorterStemmer()
 
 def tokenize_and_stem(text: str) -> list[str]:
     text = text.lower()
