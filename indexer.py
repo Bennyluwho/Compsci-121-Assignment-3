@@ -4,12 +4,16 @@
 #TODO: OPTIONAL save the time it takes
 
 from bs4 import BeautifulSoup
+from bs4 import XMLParsedAsHTMLWarning
+import warnings
 import json
 from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import SnowballStemmer
 from collections import defaultdict
 from postings import Posting
+
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 
@@ -28,13 +32,40 @@ class Indexer:
 
      # TEXT PROCESSING   
 
-    def extract_text(self, html:str) -> str:
-        if not html.strip():
-            return ""
-        soup = BeautifulSoup(html, "lxml")
+    def extract_text(self, html:str) -> tuple[str, set[str]]:
+        if not html or not html.strip():
+            return "", set()
+        
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            return "", set()
+        
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
-        return soup.get_text(separator=" ", strip=True)
+        
+        important_words = set()
+        
+        try:
+            for tag in soup.find_all(["h1", "h2", "h3", "title"]):
+                text = tag.get_text()
+                tokens = self.tokenizer.tokenize(text.lower())
+                stems = [self.stemmer.stem(t) for t in tokens]
+                important_words.update(stems)
+            
+            for tag in soup.find_all(["strong", "b"]):
+                text = tag.get_text()
+                tokens = self.tokenizer.tokenize(text.lower())
+                stems = [self.stemmer.stem(t) for t in tokens]
+                important_words.update(stems)
+        except Exception:
+            pass
+        
+        try:
+            text = soup.get_text(separator=" ", strip=True)
+            return text, important_words
+        except Exception:
+            return "", important_words
 
     def tokenize_and_stem(self, text: str) -> list[str]:
         text = text.lower()
@@ -46,21 +77,21 @@ class Indexer:
     #INDEXING SINGLE DOC
 
     def index_document(self, doc_id: int, html: str) -> None:
-        text = self.extract_text(html)
+        text, important_words = self.extract_text(html)
         stemmed_tokens = self.tokenize_and_stem(text)
 
         for token in stemmed_tokens:
             posting_list = self.inverted_index[token]
-            #check if doc_id has a posting
-
+            is_important = token in important_words
+            
             found = False
             for posting in posting_list:
                 if posting.doc_id == doc_id:
-                    posting.increment()
+                    posting.increment(is_important)
                     found = True
                     break
             if not found:
-                posting_list.append(Posting(doc_id))
+                posting_list.append(Posting(doc_id, 1, 1 if is_important else 0))
 
 
     #GRAB BATCHES
@@ -81,8 +112,9 @@ class Indexer:
         self.doc_id_to_url = {}
 
         for json_file in batch_files:
-            with json_file.open("r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with json_file.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
 
                 url = data.get("url")
                 html = data.get("content", "")
@@ -95,6 +127,11 @@ class Indexer:
 
                 self.doc_id_to_url[doc_id] = url
                 self.index_document(doc_id, html)
+            # handle broken or missing HTML
+            except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
+                continue
+            except Exception:
+                continue
 
         #save after finishing with batch
         self.save_partial(batch_id)

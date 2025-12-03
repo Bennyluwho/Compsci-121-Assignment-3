@@ -14,30 +14,51 @@ def tokenize_and_stem(text: str) -> list[str]:
     stems = [stemmer.stem(t) for t in tokens]
     return stems
 
-class SearchEngine:
-    def __init__(self, index_path: str, docids_path: str):
-        with open(index_path, "r", encoding="utf-8") as f:
-            self.index = json.load(f)
+class MemoryOptimizedSearchEngine:
+    def __init__(self, manifest_path: str, docids_path: str):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            self.manifest = json.load(f)
+        
         with open(docids_path, "r", encoding="utf-8") as f:
             self.docids = json.load(f)
         
         self.total_docs = len(self.docids)
-        self.doc_lengths = {}
-        self._compute_doc_lengths()
+        self.index_cache = {}
+        self.split_cache = {}
+        self.doc_lengths_cache = {}
     
-    def _compute_doc_lengths(self):
-        for token, postings in self.index.items():
-            for posting in postings:
-                doc_id = posting["doc_id"]
-                tf = posting["tf"]
-                if doc_id not in self.doc_lengths:
-                    self.doc_lengths[doc_id] = 0
-                self.doc_lengths[doc_id] += tf
+    def _find_split_for_token(self, token: str) -> str:
+        for split_info in self.manifest:
+            start = split_info["start_token"]
+            end = split_info["end_token"]
+            if start <= token <= end:
+                return split_info["path"]
+        return None
+    
+    def _load_token_postings(self, token: str):
+        if token in self.index_cache:
+            return self.index_cache[token]
+        
+        split_path = self._find_split_for_token(token)
+        if not split_path:
+            return []
+        
+        if split_path not in self.split_cache:
+            with open(split_path, "r", encoding="utf-8") as f:
+                self.split_cache[split_path] = json.load(f)
+        
+        split_index = self.split_cache[split_path]
+        postings = split_index.get(token, [])
+        self.index_cache[token] = postings
+        return postings
+    
     
     def _compute_idf(self, token: str) -> float:
-        if token not in self.index:
+        postings = self._load_token_postings(token)
+        if not postings:
             return 0.0
-        df = len(self.index[token])
+        
+        df = len(postings)
         if df == 0:
             return 0.0
         return math.log(self.total_docs / df)
@@ -57,12 +78,14 @@ class SearchEngine:
         matched_tokens = 0
         
         for token in query_tokens:
-            if token not in self.index:
+            postings = self._load_token_postings(token)
+            if not postings:
                 continue
-            matched_tokens += 1
             
+            matched_tokens += 1
             idf = self._compute_idf(token)
-            for posting in self.index[token]:
+            
+            for posting in postings:
                 doc_id = posting["doc_id"]
                 tf = posting["tf"]
                 imp = posting.get("imp", 0)
@@ -82,51 +105,9 @@ class SearchEngine:
                 results.append((url, score))
         
         return results
-    
-    def search_and(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
-        query_tokens = tokenize_and_stem(query)
-        if not query_tokens:
-            return []
-        
-        doc_sets = []
-        for token in query_tokens:
-            if token in self.index:
-                doc_set = {posting["doc_id"] for posting in self.index[token]}
-                doc_sets.append(doc_set)
-            else:
-                return []
-        
-        if not doc_sets:
-            return []
-        
-        common_docs = doc_sets[0]
-        for doc_set in doc_sets[1:]:
-            common_docs = common_docs.intersection(doc_set)
-        
-        doc_scores = defaultdict(float)
-        for doc_id in common_docs:
-            for token in query_tokens:
-                if token in self.index:
-                    for posting in self.index[token]:
-                        if posting["doc_id"] == doc_id:
-                            tf = posting["tf"]
-                            imp = posting.get("imp", 0)
-                            tf_idf = self._compute_tf_idf(token, doc_id, tf, imp)
-                            doc_scores[doc_id] += tf_idf
-        
-        sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
-        
-        results = []
-        for doc_id, score in sorted_docs[:top_k]:
-            doc_id_str = str(doc_id)
-            if doc_id_str in self.docids:
-                url = self.docids[doc_id_str]
-                results.append((url, score))
-        
-        return results
 
 if __name__ == "__main__":
-    engine = SearchEngine("final_index.json", "final_docids.json")
+    engine = MemoryOptimizedSearchEngine("index_manifest.json", "final_docids.json")
     
     while True:
         query = input(">>> ")
@@ -142,3 +123,4 @@ if __name__ == "__main__":
         else:
             print("No results found.")
         print()
+
