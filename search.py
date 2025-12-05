@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 from collections import defaultdict
@@ -17,25 +16,16 @@ def tokenize_and_stem(text: str) -> list[str]:
 
 class SearchEngine:
     def __init__(self, index_path: str, docids_path: str):
+        # load the entire index into memory for fast lookups
         with open(index_path, "r", encoding="utf-8") as f:
             self.index = json.load(f)
         with open(docids_path, "r", encoding="utf-8") as f:
             self.docids = json.load(f)
         
         self.total_docs = len(self.docids)
-        self.doc_lengths = {}
-        self._compute_doc_lengths()
-    
-    def _compute_doc_lengths(self):
-        for token, postings in self.index.items():
-            for posting in postings:
-                doc_id = posting["doc_id"]
-                tf = posting["tf"]
-                if doc_id not in self.doc_lengths:
-                    self.doc_lengths[doc_id] = 0
-                self.doc_lengths[doc_id] += tf
     
     def _compute_idf(self, token: str) -> float:
+        # log(total_docs / doc_frequency)
         if token not in self.index:
             return 0.0
         df = len(self.index[token])
@@ -44,12 +34,14 @@ class SearchEngine:
         return math.log(self.total_docs / df)
     
     def _compute_tf_idf(self, token: str, doc_id: int, tf: int, imp: int = 0) -> float:
+        # tf-idf score + important words
         idf = self._compute_idf(token)
         base_score = tf * idf
-        important_boost = imp * idf * 1.5
+        important_boost = imp * idf * 1.5  # 1.5 for important words
         return base_score + important_boost
     
     def search(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
+        # tokenize and stem the query (same process as indexing)
         query_tokens = tokenize_and_stem(query)
         if not query_tokens:
             return []
@@ -57,22 +49,25 @@ class SearchEngine:
         doc_scores = defaultdict(float)
         matched_tokens = 0
         
+        # accumulate scores for each document containing query terms
         for token in query_tokens:
             if token not in self.index:
                 continue
             matched_tokens += 1
             
             idf = self._compute_idf(token)
+            # iterate through all postings for this token
             for posting in self.index[token]:
                 doc_id = posting["doc_id"]
                 tf = posting["tf"]
                 imp = posting.get("imp", 0)
                 tf_idf = self._compute_tf_idf(token, doc_id, tf, imp)
-                doc_scores[doc_id] += tf_idf
+                doc_scores[doc_id] += tf_idf  # sum scores across query terms
         
         if matched_tokens == 0:
             return []
         
+        # sort by score and return top k results
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
         
         results = []
@@ -127,13 +122,16 @@ class SearchEngine:
         return results
 
 if __name__ == "__main__":
+    # initialize search engine with pre-built index
     engine = SearchEngine("final_index.json", "final_docids.json")
     
+    # interactive search loop
     while True:
         query = input(">>> ")
         if query.lower() in ["quit", "exit", "q"]:
             break
         
+        # measure query response time
         start_time = time.time()
         results = engine.search(query, top_k=10)
         end_time = time.time()

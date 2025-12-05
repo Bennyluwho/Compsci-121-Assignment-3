@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 from collections import defaultdict
@@ -26,7 +25,6 @@ class MemoryOptimizedSearchEngine:
         self.total_docs = len(self.docids)
         self.index_cache = {}
         self.split_cache = {}
-        self.doc_lengths_cache = {}
     
     def _find_split_for_token(self, token: str) -> str:
         for split_info in self.manifest:

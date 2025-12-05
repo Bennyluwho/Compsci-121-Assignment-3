@@ -6,6 +6,7 @@ import time
 import json
 
 def clean_old_partials(folder="."):
+    # clean up old partial index files before starting， otherwise has to do it manually
     folder = Path(folder)
     for f in folder.glob("partial_index_*.json"):
         f.unlink()
@@ -29,20 +30,20 @@ if __name__ == "__main__":
     print(f"Indexing completed in {indexing_duration:.2f} seconds.")
     print(f"Total pages indexed: {indexer.global_doc_id}")
 
-    print(f"Number of indexed pages:", indexer.global_doc_id)
-    print(f"Number of unique tokens:", len(indexer.inverted_index))
-
+    # find all partial index files to merge
     partial_index_files = sorted(Path(".").glob("partial_index_*.json"))
     partial_docid_files = sorted(Path(".").glob("partial_docids_*.json"))
     
     if partial_index_files:
         start_merge_time = time.time()
         
+        # merge all partial indexes into one
         merger = IndexMerger()
         merger.merge_partial_indexes([str(f) for f in partial_index_files])
         merger.merge_partial_docids([str(f) for f in partial_docid_files])
         merger.save_final_index("final_index.json")
         
+        # save docid in json files
         with open("final_docids.json", "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in merger.merged_docids.items()}, f)
         
@@ -52,9 +53,9 @@ if __name__ == "__main__":
         print("\nMerged all partial indexes.")
         print(f"Merging completed in {merge_duration:.2f} seconds.")
         
+        # SPlit to multiple json files to save memory
         print("\nSplitting index by term ranges...")
-        manifest_path = merger.split_index_by_term_ranges("final_index.json", num_splits=10)
-        print(f"Index split complete. Manifest: {manifest_path}")
+        merger.split_index_by_term_ranges("final_index.json", num_splits=10)
         
         stats = StatsPrinter()
         stats.print_index_stats("final_index.json", "final_docids.json")
