@@ -4,6 +4,7 @@ from nltk.tokenize import RegexpTokenizer
 from nltk.stem import PorterStemmer
 from collections import defaultdict
 import math
+import time
 
 tokenizer = RegexpTokenizer(r"[a-zA-Z0-9\-]+")
 stemmer = PorterStemmer()
@@ -114,12 +115,17 @@ if __name__ == "__main__":
         if query.lower() in ["quit", "exit", "q"]:
             break
         
+        start_time = time.time()
         results = engine.search(query, top_k=10)
+        end_time = time.time()
+        
+        response_time_ms = (end_time - start_time) * 1000
         
         if results:
             print(f"\nFound {len(results)} results:")
             for i, (url, score) in enumerate(results, 1):
                 print(f"{i}. {url} (score: {score:.4f})")
+            print(f"found {len(results)} reports in {response_time_ms:.2f} milliseconds")
         else:
             print("No results found.")
         print()
