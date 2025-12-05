@@ -12,6 +12,7 @@ from nltk.stem import PorterStemmer
 from collections import defaultdict
 from postings import Posting
 from duplicate_detector import DuplicateDetector
+from urllib.parse import urljoin, urlparse
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -29,6 +30,10 @@ class Indexer:
 
         self.inverted_index = defaultdict(list) # stores a list of posting  objects
         self.doc_id_to_url = {}
+        # Global anchor words map: {target_url: [anchor_tokens]}
+        self.global_anchor_words = defaultdict(list)
+        # Global URL to doc_id mapping (across all batches)
+        self.global_url_to_doc_id = {}
 
         self.global_doc_id = 0
         self.duplicate_detector = DuplicateDetector() if detect_duplicates else None
@@ -79,7 +84,47 @@ class Indexer:
         stems = [self.stemmer.stem(t) for t in tokens]
         return stems
     
-    #INDEXING SINGLE DOC
+    # TODO: EXTRA CREDIT 5
+    def extract_anchor_words(self, html: str, base_url: str) -> dict[str, list[str]]:
+        anchor_map = defaultdict(list)
+        
+        if not html or not html.strip():
+            return anchor_map
+        
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception:
+            return anchor_map
+        
+        try:
+            for link in soup.find_all("a", href=True):
+                href = link.get("href", "").strip()
+                anchor_text = link.get_text(strip=True)
+                
+                if not href or not anchor_text:
+                    continue
+                
+                # Resolve relative URLs to absolute URLs
+                try:
+                    absolute_url = urljoin(base_url, href)
+                    # Normalize URL (remove fragment, normalize)
+                    parsed = urlparse(absolute_url)
+                    normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                    if parsed.query:
+                        normalized_url += f"?{parsed.query}"
+                    
+                    # Tokenize and stem anchor text
+                    anchor_tokens = self.tokenize_and_stem(anchor_text)
+                    if anchor_tokens:
+                        anchor_map[normalized_url].extend(anchor_tokens)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        
+        return anchor_map
+    
+    #index single document
 
     def index_document(self, doc_id: int, html: str) -> None:
         text, important_words = self.extract_text(html)
@@ -97,9 +142,23 @@ class Indexer:
                     break
             if not found:
                 posting_list.append(Posting(doc_id, 1, 1 if is_important else 0))
+    
+    def index_anchor_words(self, target_doc_id: int, anchor_tokens: list[str]) -> None:
+        for token in anchor_tokens:
+            posting_list = self.inverted_index[token]
+            
+            found = False
+            for posting in posting_list:
+                if posting.doc_id == target_doc_id:
+                    # increase posting for anchor words
+                    posting.increment(is_important=True)
+                    found = True
+                    break
+            if not found:
+                # create postings for anchor words
+                posting_list.append(Posting(target_doc_id, 1, 1))
 
 
-    #GRAB BATCHES
     def batch_grab(self):
         batch = []
         for file_path in self.root.rglob("*.json"):
@@ -107,11 +166,10 @@ class Indexer:
             if len(batch) == self.batch_size:
                 yield batch
                 batch = []
-        #note: trying to catch leftovers
+        # trying to catch remaining files
         if batch:
             yield batch
 
-    #BATCH PROCESSING
     def process_batch(self, batch_files, batch_id):
         self.inverted_index = defaultdict(list)
         self.doc_id_to_url = {}
@@ -144,7 +202,14 @@ class Indexer:
 
                 self.global_doc_id += 1
                 self.doc_id_to_url[doc_id] = url
+                self.global_url_to_doc_id[url] = doc_id
                 self.index_document(doc_id, html)
+                
+                # Extract anchor words from this document and store globally
+                anchor_map = self.extract_anchor_words(html, url)
+                for target_url, anchor_tokens in anchor_map.items():
+                    self.global_anchor_words[target_url].extend(anchor_tokens)
+                    
             # handle broken or missing HTML
             except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
                 continue
@@ -167,6 +232,76 @@ class Indexer:
             json.dump(self.doc_id_to_url, f)
 
 
+    def process_anchor_words(self):
+        """
+        Process all collected anchor words and index them to target documents.
+        This needs to update all partial indexes.
+        """
+        print("Processing anchor words...")
+        anchor_count = 0
+        
+        # Process anchor words for each target URL that exists in our index
+        for target_url, anchor_tokens in self.global_anchor_words.items():
+            if target_url in self.global_url_to_doc_id:
+                target_doc_id = self.global_url_to_doc_id[target_url]
+                # Find which batch this doc_id belongs to by checking partial indexes
+                # We need to update the partial index that contains this doc_id
+                # For simplicity, we'll update all partial indexes that might contain the target
+                anchor_count += len(anchor_tokens)
+        
+        # Load all partial indexes and update them with anchor words
+        partial_index_files = sorted(Path(".").glob("partial_index_*.json"))
+        
+        for index_file in partial_index_files:
+            try:
+                with open(index_file, "r", encoding="utf-8") as f:
+                    partial_index = json.load(f)
+                
+                # Load corresponding docids to find which URLs are in this partial index
+                batch_id = int(index_file.stem.split("_")[-1])
+                docid_file = Path(f"partial_docids_{batch_id}.json")
+                
+                if docid_file.exists():
+                    with open(docid_file, "r", encoding="utf-8") as f:
+                        partial_docids = json.load(f)
+                    
+                    # Create reverse mapping for this batch
+                    url_to_doc_id = {v: int(k) for k, v in partial_docids.items()}
+                    
+                    # Update index with anchor words for URLs in this batch
+                    for target_url, anchor_tokens in self.global_anchor_words.items():
+                        if target_url in url_to_doc_id:
+                            target_doc_id = url_to_doc_id[target_url]
+                            # Index anchor words to this document
+                            for token in anchor_tokens:
+                                if token not in partial_index:
+                                    partial_index[token] = []
+                                
+                                # Find or create posting for this doc_id
+                                found = False
+                                for posting in partial_index[token]:
+                                    if posting["doc_id"] == target_doc_id:
+                                        posting["tf"] += 1
+                                        posting["imp"] += 1  # Anchor words are important
+                                        found = True
+                                        break
+                                
+                                if not found:
+                                    partial_index[token].append({
+                                        "doc_id": target_doc_id,
+                                        "tf": 1,
+                                        "imp": 1
+                                    })
+                    
+                    # Save updated partial index
+                    with open(index_file, "w", encoding="utf-8") as f:
+                        json.dump(partial_index, f)
+            except Exception as e:
+                print(f"Error processing anchor words for {index_file}: {e}")
+                continue
+        
+        print(f"Indexed {anchor_count} anchor word tokens across all documents.")
+
     #RUN
     def build(self):
         batch_id = 0
@@ -174,6 +309,10 @@ class Indexer:
             print(f"Processing batch {batch_id} with {len(batch_files)} files.")
             self.process_batch(batch_files, batch_id)
             batch_id += 1
+        
+        # Process anchor words after all batches are processed
+        if self.global_anchor_words:
+            self.process_anchor_words()
         
         if self.detect_duplicates and self.duplicate_detector:
             stats = self.duplicate_detector.get_duplicate_stats()
