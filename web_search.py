@@ -4,7 +4,7 @@ from search import SearchEngine
 app = Flask(__name__)
 
 # initialize search engine
-engine = SearchEngine("final_index.json", "final_docids.json")
+engine = SearchEngine("final_index.json", "final_docids.json", "doc_magnitudes.json")
 
 @app.route('/')
 def index():

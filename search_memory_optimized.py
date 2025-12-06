@@ -4,6 +4,7 @@ from nltk.stem import PorterStemmer
 from collections import defaultdict
 import math
 import time
+from scoring import compute_idf, compute_tf_idf
 
 tokenizer = RegexpTokenizer(r"[a-zA-Z0-9\-]+")
 stemmer = PorterStemmer()
@@ -15,12 +16,15 @@ def tokenize_and_stem(text: str) -> list[str]:
     return stems
 
 class MemoryOptimizedSearchEngine:
-    def __init__(self, manifest_path: str, docids_path: str):
+    def __init__(self, manifest_path: str, docids_path: str, magnitudes_path: str = "doc_magnitudes.json"):
         with open(manifest_path, "r", encoding="utf-8") as f:
             self.manifest = json.load(f)
         
         with open(docids_path, "r", encoding="utf-8") as f:
             self.docids = json.load(f)
+
+        with open(magnitudes_path, "r", encoding="utf-8") as f:
+            self.doc_magnitudes = json.load(f)
         
         self.total_docs = len(self.docids)
         self.index_cache = {}
@@ -51,27 +55,11 @@ class MemoryOptimizedSearchEngine:
         self.index_cache[token] = postings
         return postings
     
-    
-    def _compute_idf(self, token: str) -> float:
-        postings = self._load_token_postings(token)
-        if not postings:
-            return 0.0
-        
-        df = len(postings)
-        if df == 0:
-            return 0.0
-        return math.log(self.total_docs / df)
-    
-    def _compute_tf_idf(self, token: str, doc_id: int, tf: int, imp: int = 0) -> float:
-        idf = self._compute_idf(token)
-        base_score = tf * idf
-        important_boost = imp * idf * 1.5
-        return base_score + important_boost
-    
     def search(self, query: str, top_k: int = 10) -> list[tuple[str, float]]:
         query_tokens = tokenize_and_stem(query)
         if not query_tokens:
             return []
+        
         
         doc_scores = defaultdict(float)
         matched_tokens = 0
@@ -82,17 +70,25 @@ class MemoryOptimizedSearchEngine:
                 continue
             
             matched_tokens += 1
-            idf = self._compute_idf(token)
+            idf = compute_idf(self.total_docs, len(postings))
             
             for posting in postings:
                 doc_id = posting["doc_id"]
                 tf = posting["tf"]
                 imp = posting.get("imp", 0)
-                tf_idf = self._compute_tf_idf(token, doc_id, tf, imp)
+                tf_idf = compute_tf_idf(tf, idf, imp)
                 doc_scores[doc_id] += tf_idf
         
         if matched_tokens == 0:
             return []
+        
+        #apply cosine normalization
+        for doc_id in doc_scores:
+            doc_id_str = str(doc_id)
+            if doc_id_str in self.doc_magnitudes:
+                magnitude = self.doc_magnitudes[doc_id_str]
+                if magnitude > 0:
+                    doc_scores[doc_id] /= magnitude
         
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
         

@@ -4,6 +4,7 @@ from stats_printer import StatsPrinter
 from pathlib import Path
 import time
 import json
+from compute_magnitudes import compute_magnitudes
 
 def clean_old_partials(folder="."):
     # clean up old partial index files before starting， otherwise has to do it manually
@@ -52,8 +53,14 @@ if __name__ == "__main__":
         
         print("\nMerged all partial indexes.")
         print(f"Merging completed in {merge_duration:.2f} seconds.")
+
+        compute_magnitudes(
+            index_path=[str(f) for f in partial_index_files],
+            total_docs=indexer.global_doc_id,
+            output_path="doc_magnitudes.json"
+        )
         
-        # SPlit to multiple json files to save memory
+        # Split to multiple json files to save memory
         print("\nSplitting index by term ranges...")
         merger.split_index_by_term_ranges("final_index.json", num_splits=10)
         

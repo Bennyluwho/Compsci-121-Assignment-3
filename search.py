@@ -4,6 +4,7 @@ from nltk.stem import PorterStemmer
 from collections import defaultdict
 import math
 import time
+from scoring import compute_idf, compute_tf_idf
 
 tokenizer = RegexpTokenizer(r"[a-zA-Z0-9\-]+")
 stemmer = PorterStemmer()
@@ -15,12 +16,14 @@ def tokenize_and_stem(text: str) -> list[str]:
     return stems
 
 class SearchEngine:
-    def __init__(self, index_path: str, docids_path: str):
+    def __init__(self, index_path: str, docids_path: str, magnitudes_path: str = "doc_magnitudes.json"):
         # load the entire index into memory for fast lookups
         with open(index_path, "r", encoding="utf-8") as f:
             self.index = json.load(f)
         with open(docids_path, "r", encoding="utf-8") as f:
             self.docids = json.load(f)
+        with open(magnitudes_path, "r", encoding="utf-8") as f:
+            self.doc_magnitudes = json.load(f)
         
         self.total_docs = len(self.docids)
     
@@ -55,17 +58,26 @@ class SearchEngine:
                 continue
             matched_tokens += 1
             
-            idf = self._compute_idf(token)
+            idf = compute_idf(self.total_docs, len(self.index[token]))
             # iterate through all postings for this token
             for posting in self.index[token]:
                 doc_id = posting["doc_id"]
                 tf = posting["tf"]
                 imp = posting.get("imp", 0)
-                tf_idf = self._compute_tf_idf(token, doc_id, tf, imp)
+
+                tf_idf = compute_tf_idf(tf, idf, imp)
                 doc_scores[doc_id] += tf_idf  # sum scores across query terms
         
         if matched_tokens == 0:
             return []
+        
+        #apply cosine normalization
+        for doc_id in doc_scores:
+            doc_id_str = str(doc_id)
+            if doc_id_str in self.doc_magnitudes:
+                magnitude = self.doc_magnitudes[doc_id_str]
+                if magnitude > 0:
+                    doc_scores[doc_id] /= magnitude
         
         # sort by score and return top k results
         sorted_docs = sorted(doc_scores.items(), key=lambda x: x[1], reverse=True)
